@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Jardim das Conquistas runtime",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "conversation-path",
+        "label": "Primary conversation path",
+        "focus": ["telegram", "inbound", "orchestrator", "openai", "postgres", "messaging"],
+        "note": "Inbound text is linked, orchestrated, persisted, and sent back on the same channel."
+      },
+      {
+        "id": "jwt-http",
+        "label": "JWT HTTP surface",
+        "focus": ["appClient", "jwtAuth", "httpApi", "orchestrator", "postgres"],
+        "note": "Bearer JWT on authenticated Nest routes; garden-guide reuses the orchestrator."
+      },
+      {
+        "id": "reminder-delivery",
+        "label": "Reminder delivery",
+        "focus": ["reminder", "postgres", "messaging", "telegram", "evolution"],
+        "note": "Cron evaluates policy, claims the occurrence, then MessagingService delivers."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "appClient",
+      "type": "frontend",
+      "label": "App / Web",
+      "sublabel": "Browser client",
+      "pos": [40, 48],
+      "size": [130, 56]
+    },
+    {
+      "id": "jwtAuth",
+      "type": "security",
+      "label": "AuthGuard",
+      "sublabel": "Bearer JWT",
+      "tag": "JWT_SECRET",
+      "pos": [260, 44],
+      "size": [130, 60]
+    },
+    {
+      "id": "httpApi",
+      "type": "backend",
+      "label": "Nest HTTP API",
+      "sublabel": ":3000 /api/docs",
+      "pos": [530, 48],
+      "size": [180, 56]
+    },
+    {
+      "id": "telegram",
+      "type": "external",
+      "label": "Telegram Bot API",
+      "sublabel": "long poll / send",
+      "brand": "telegram",
+      "pos": [40, 236],
+      "size": [150, 56]
+    },
+    {
+      "id": "inbound",
+      "type": "backend",
+      "label": "Inbound pipeline",
+      "sublabel": "link · digest · rate limit",
+      "pos": [280, 236],
+      "size": [160, 56]
+    },
+    {
+      "id": "orchestrator",
+      "type": "backend",
+      "label": "Conversation orchestrator",
+      "sublabel": "nuclei + actions",
+      "pos": [530, 232],
+      "size": [180, 60]
+    },
+    {
+      "id": "openai",
+      "type": "external",
+      "label": "OpenAI",
+      "sublabel": "chat completions",
+      "brand": "openai",
+      "pos": [820, 72],
+      "size": [140, 56]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "Prisma",
+      "brand": "postgresql",
+      "pos": [820, 280],
+      "size": [140, 56]
+    },
+    {
+      "id": "evolution",
+      "type": "external",
+      "label": "Evolution",
+      "sublabel": "POST /api/evolution/webhook",
+      "pos": [40, 400],
+      "size": [160, 60]
+    },
+    {
+      "id": "reminder",
+      "type": "backend",
+      "label": "Reminder cron",
+      "sublabel": "policy · claim · send",
+      "pos": [280, 404],
+      "size": [160, 56]
+    },
+    {
+      "id": "messaging",
+      "type": "backend",
+      "label": "MessagingService",
+      "sublabel": "channel outbound",
+      "pos": [530, 404],
+      "size": [180, 56]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "JWT HTTP surface",
+      "wraps": ["jwtAuth", "httpApi"]
+    },
+    {
+      "kind": "region",
+      "label": "NestJS process :3000",
+      "wraps": ["jwtAuth", "httpApi", "inbound", "orchestrator", "messaging", "reminder"]
+    },
+    {
+      "kind": "region",
+      "label": "Data plane",
+      "wraps": ["postgres"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "app-to-jwt",
+      "from": "appClient",
+      "to": "jwtAuth",
+      "label": "Bearer"
+    },
+    {
+      "id": "jwt-to-http",
+      "from": "jwtAuth",
+      "to": "httpApi",
+      "label": "verify JWT",
+      "variant": "security"
+    },
+    {
+      "id": "http-to-orch",
+      "from": "httpApi",
+      "to": "orchestrator",
+      "label": "garden-guide",
+      "labelDy": 24
+    },
+    {
+      "id": "tg-to-inbound",
+      "from": "telegram",
+      "to": "inbound",
+      "label": "inbound text",
+      "variant": "emphasis"
+    },
+    {
+      "id": "evo-to-inbound",
+      "from": "evolution",
+      "to": "inbound",
+      "label": "webhook"
+    },
+    {
+      "id": "inbound-to-orch",
+      "from": "inbound",
+      "to": "orchestrator",
+      "label": "linked user",
+      "variant": "emphasis"
+    },
+    {
+      "id": "orch-to-openai",
+      "from": "orchestrator",
+      "to": "openai",
+      "label": "OPENAI_API_KEY",
+      "variant": "emphasis"
+    },
+    {
+      "id": "orch-to-pg",
+      "from": "orchestrator",
+      "to": "postgres",
+      "label": "persist",
+      "variant": "emphasis"
+    },
+    {
+      "id": "orch-to-msg",
+      "from": "orchestrator",
+      "to": "messaging",
+      "label": "reply",
+      "variant": "emphasis",
+      "labelDy": 24
+    },
+    {
+      "id": "reminder-to-msg",
+      "from": "reminder",
+      "to": "messaging",
+      "label": "deliver"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "HTTP and garden",
+      "items": [
+        "JWT on goals, worlds, dashboard, progress, events, garden-guide; Prisma like the orchestrator",
+        "Socket.IO /worlds; S3/Garage when S3_ASSET_PROXY=true; CORS on"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Inbound and reminders",
+      "items": [
+        "Unlinked users send an 8-hex link code; RESUMO runs digest; Redis or in-memory rate limit",
+        "Cron claims in PostgreSQL then MessagingService delivers on Telegram or Evolution"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Legacy",
+      "items": [
+        "Supabase is catalog/tree import only; Joi still accepts unused WUZAPI_* names"
+      ]
+    }
+  ]
+}

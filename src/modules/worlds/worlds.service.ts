@@ -2,12 +2,26 @@ import { Injectable } from '@nestjs/common';
 import { prisma } from '../../prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { Readable } from 'stream';
 import { parseSVGLayout } from './svg-parser';
 import { WorldsConfigService } from './worlds-config.service';
+import { StorageService } from '../../storage/storage.service';
+import { normalizeWorldSvgKey } from '../../storage/asset-key.util';
+
+async function readableToString(body: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of body) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 @Injectable()
 export class WorldsService {
-  constructor(private readonly configService: WorldsConfigService) {}
+  constructor(
+    private readonly configService: WorldsConfigService,
+    private readonly storageService: StorageService,
+  ) {}
 
   private worldsPath = path.join(
     process.cwd(),
@@ -89,14 +103,26 @@ export class WorldsService {
     return worlds.find((w) => w.worldId === 'mundo2') || worlds[0];
   }
 
+  async readSvgText(storedPath: string): Promise<string | null> {
+    const key = normalizeWorldSvgKey(storedPath);
+    if (key.startsWith('assets/')) {
+      const object = await this.storageService.getObject(key);
+      if (!object.body) return null;
+      return readableToString(object.body);
+    }
+
+    const svgPath = path.join(process.cwd(), storedPath);
+    if (!fs.existsSync(svgPath)) return null;
+    return fs.readFileSync(svgPath, 'utf8');
+  }
+
   async regenerateConfig(worldId: string) {
     const world = await this.getWorldById(worldId);
     if (!world) throw new Error('World not found');
 
-    const svgPath = path.join(process.cwd(), world.svgPath);
-    if (!fs.existsSync(svgPath)) throw new Error('SVG file not found');
+    const svgText = await this.readSvgText(world.svgPath);
+    if (svgText == null) throw new Error('SVG file not found');
 
-    const svgText = fs.readFileSync(svgPath, 'utf8');
     const anchors = await parseSVGLayout(svgText);
     await this.configService.upsert(worldId, { anchors: anchors as any });
     return { message: 'Config regenerated' };

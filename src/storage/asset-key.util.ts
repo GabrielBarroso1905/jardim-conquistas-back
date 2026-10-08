@@ -76,3 +76,25 @@ export function isSupabasePublicUrl(value: string): boolean {
     value.includes('supabase.co/storage/v1/object/public/')
   );
 }
+
+/**
+ * Normalizes a world background path to a Garage key.
+ * `assets/...` stays as-is. Supabase pointers and `words/...` gain the
+ * `assets/` prefix. Local filesystem paths are left unchanged.
+ */
+export function normalizeWorldSvgKey(value: string): string {
+  if (!value || typeof value !== 'string') return value;
+  const trimmed = value.trim().replace(/\\/g, '/');
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith('assets/')) return trimmed;
+
+  const supabase = /^supabase:\/\/[^/]+\/(.+)$/.exec(trimmed);
+  if (supabase) {
+    const rest = supabase[1].replace(/^\/+/, '');
+    return rest.startsWith('assets/') ? rest : `assets/${rest}`;
+  }
+
+  if (trimmed.startsWith('words/')) return `assets/${trimmed}`;
+
+  return trimmed;
+}
