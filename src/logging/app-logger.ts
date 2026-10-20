@@ -4,10 +4,29 @@ const LOG_CONTEXTS = new Set([
   'WhatsAppService',
   'WuzapiClient',
   'NestApplication',
+  'ReminderObservabilityService',
 ]);
 
+const REMINDER_VERBOSE_CONTEXTS = new Set(['ReminderService']);
+
+const ALWAYS_WARN_CONTEXTS = new Set(['ReminderService']);
+
 function isAllowed(context?: string): boolean {
-  return Boolean(context && LOG_CONTEXTS.has(context));
+  if (!context) return false;
+  if (LOG_CONTEXTS.has(context)) return true;
+  if (
+    process.env.LOG_REMINDERS === '1' &&
+    REMINDER_VERBOSE_CONTEXTS.has(context)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isWarnAllowed(context?: string): boolean {
+  if (!context) return false;
+  if (ALWAYS_WARN_CONTEXTS.has(context)) return true;
+  return isAllowed(context);
 }
 
 function stringify(message: unknown): string {
@@ -27,7 +46,7 @@ export class AppLogger implements LoggerService {
   }
 
   warn(message: unknown, context?: string) {
-    if (!isAllowed(context)) return;
+    if (!isWarnAllowed(context)) return;
     console.warn(`[${context}] ${stringify(message)}`);
   }
 
