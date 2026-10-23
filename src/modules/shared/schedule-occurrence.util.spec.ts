@@ -3,6 +3,7 @@ import {
   expectedSlotCountForGoalOnDate,
   normalizeTimeToHHmm,
   resolveDailyStatusForDate,
+  resolveOccurrenceStatus,
   scheduledTimesForGoalOnDate,
   coerceScheduleConfig,
   occurrencesOnCivilDate,
@@ -248,5 +249,140 @@ describe('resolveDailyStatusForDate', () => {
     expect(resolveDailyStatusForDate(goalWithEvents, past, tz, now)).toBe(
       'PENDING',
     );
+  });
+});
+
+describe('resolveOccurrenceStatus', () => {
+  const tz = 'America/Sao_Paulo';
+  const createdAt = '2026-01-01T12:00:00.000Z';
+
+  function goal(overrides: Record<string, unknown> = {}) {
+    return {
+      createdAt,
+      schedule: { type: 'daily' as const, times: ['08:00', '18:00'] },
+      plantedTree: { growthEvents: [] as Array<Record<string, unknown>> },
+      ...overrides,
+    };
+  }
+
+  it('hoje com 08:00 e 18:00 às 10:00 segue PENDING', () => {
+    const now = DateTime.fromISO('2026-08-26T10:00:00', { zone: tz });
+    const today = DateTime.fromISO('2026-08-26', { zone: tz });
+    expect(resolveOccurrenceStatus(goal(), today, tz, now)).toBe('PENDING');
+  });
+
+  it('vira MISSED no instante do último horário e segue PENDING um minuto antes', () => {
+    const today = DateTime.fromISO('2026-08-26', { zone: tz });
+    const before = DateTime.fromISO('2026-08-26T17:59:00', { zone: tz });
+    const atLast = DateTime.fromISO('2026-08-26T18:00:00', { zone: tz });
+    expect(resolveOccurrenceStatus(goal(), today, tz, before)).toBe('PENDING');
+    expect(resolveOccurrenceStatus(goal(), today, tz, atLast)).toBe('MISSED');
+  });
+
+  it('um horário 07:00 com DONE de ontem às 10:00 é MISSED', () => {
+    const now = DateTime.fromISO('2026-08-26T10:00:00', { zone: tz });
+    const today = DateTime.fromISO('2026-08-26', { zone: tz });
+    expect(
+      resolveOccurrenceStatus(
+        goal({
+          schedule: { type: 'daily', times: ['07:00'] },
+          dailyStatus: 'DONE',
+          reminderUpdatedAt: '2026-08-25T20:00:00.000-03:00',
+          plantedTree: {
+            growthEvents: [
+              { createdAt, progressIndex: 1 },
+              {
+                createdAt: '2026-08-25T18:00:00.000-03:00',
+                progressIndex: 2,
+              },
+            ],
+          },
+        }),
+        today,
+        tz,
+        now,
+      ),
+    ).toBe('MISSED');
+  });
+
+  it('dia futuro com DONE ou SKIPPED vivos segue PENDING', () => {
+    const now = DateTime.fromISO('2026-08-26T10:00:00', { zone: tz });
+    const tomorrow = DateTime.fromISO('2026-08-27', { zone: tz });
+    expect(
+      resolveOccurrenceStatus(
+        goal({
+          dailyStatus: 'DONE',
+          reminderUpdatedAt: '2026-08-26T09:00:00.000-03:00',
+        }),
+        tomorrow,
+        tz,
+        now,
+      ),
+    ).toBe('PENDING');
+    expect(
+      resolveOccurrenceStatus(
+        goal({ dailyStatus: 'SKIPPED' }),
+        tomorrow,
+        tz,
+        now,
+      ),
+    ).toBe('PENDING');
+  });
+
+  it('passado com colheita é DONE e passado sem colheita é MISSED', () => {
+    const now = DateTime.fromISO('2026-08-26T10:00:00', { zone: tz });
+    const harvested = DateTime.fromISO('2026-08-25', { zone: tz });
+    const empty = DateTime.fromISO('2026-08-24', { zone: tz });
+    expect(
+      resolveOccurrenceStatus(
+        goal({
+          plantedTree: {
+            growthEvents: [
+              { createdAt, progressIndex: 1 },
+              {
+                createdAt: '2026-08-25T14:00:00.000-03:00',
+                progressIndex: 2,
+              },
+            ],
+          },
+        }),
+        harvested,
+        tz,
+        now,
+      ),
+    ).toBe('DONE');
+    expect(resolveOccurrenceStatus(goal(), empty, tz, now)).toBe('MISSED');
+  });
+
+  it('hoje com colheita depois do último horário segue DONE', () => {
+    const now = DateTime.fromISO('2026-08-26T19:00:00', { zone: tz });
+    const today = DateTime.fromISO('2026-08-26', { zone: tz });
+    expect(
+      resolveOccurrenceStatus(
+        goal({
+          plantedTree: {
+            growthEvents: [
+              { createdAt, progressIndex: 1 },
+              {
+                createdAt: '2026-08-26T14:00:00.000-03:00',
+                progressIndex: 2,
+              },
+            ],
+          },
+        }),
+        today,
+        tz,
+        now,
+      ),
+    ).toBe('DONE');
+  });
+
+  it('SKIPPED de hoje permanece depois do último horário e não pinta amanhã', () => {
+    const now = DateTime.fromISO('2026-08-26T19:00:00', { zone: tz });
+    const today = DateTime.fromISO('2026-08-26', { zone: tz });
+    const tomorrow = DateTime.fromISO('2026-08-27', { zone: tz });
+    const skipped = goal({ dailyStatus: 'SKIPPED' });
+    expect(resolveOccurrenceStatus(skipped, today, tz, now)).toBe('SKIPPED');
+    expect(resolveOccurrenceStatus(skipped, tomorrow, tz, now)).toBe('PENDING');
   });
 });

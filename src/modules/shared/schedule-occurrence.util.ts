@@ -378,6 +378,54 @@ function reminderTouchedOnDay(
   return at.isValid && isSameCalendarDay(at, day, tz);
 }
 
+export type OccurrenceStatus = 'PENDING' | 'DONE' | 'MISSED' | 'SKIPPED';
+
+const OCCURRENCE_FALLBACK_TIME = '08:00';
+
+/**
+ * Status da linha da timeline (uma por meta por dia civil).
+ * DONE e SKIPPED vêm de resolveDailyStatusForDate. MISSED só quando
+ * o último horário daquele dia já passou. Dia futuro permanece PENDING.
+ */
+export function resolveOccurrenceStatus(
+  goal: GoalLike & GoalDailyStatusLike,
+  targetDate: DateTime,
+  tz: string,
+  now: DateTime = DateTime.now(),
+): OccurrenceStatus {
+  const daily = resolveDailyStatusForDate(goal, targetDate, tz, now);
+  if (daily === 'DONE') return 'DONE';
+
+  const targetDay = targetDate.setZone(tz).startOf('day');
+  const today = now.setZone(tz).startOf('day');
+
+  if (targetDay.hasSame(today, 'day') && daily === 'SKIPPED') return 'SKIPPED';
+  if (targetDay > today) return 'PENDING';
+
+  const slots = occurrencesOnCivilDate(goal, targetDate, tz);
+  const deadline =
+    slots.length > 0
+      ? slots.reduce(
+          (latest, slot) =>
+            slot.at.toMillis() > latest.toMillis() ? slot.at : latest,
+          slots[0].at,
+        )
+      : slotAt(targetDay, OCCURRENCE_FALLBACK_TIME);
+
+  if (now.toMillis() >= deadline.toMillis()) return 'MISSED';
+  return 'PENDING';
+}
+
+function slotAt(dayStart: DateTime, hhmm: string): DateTime {
+  const [hour, minute] = hhmm.split(':').map(Number);
+  return dayStart.set({
+    hour: hour || 0,
+    minute: minute || 0,
+    second: 0,
+    millisecond: 0,
+  });
+}
+
 /**
  * dailyStatus contextual à data consultada (não é o valor bruto do GoalReminder).
  * CONTINUA + DAILY: conclusão é por dia civil. DONE de ontem não pinta amanhã.

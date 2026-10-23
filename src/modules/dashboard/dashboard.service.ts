@@ -5,9 +5,10 @@ import { UserGoalService } from '../goals/user-goal.service';
 import {
   expectedSlotCountForGoalOnDate,
   monthRangeFromInput,
-  resolveDailyStatusForDate,
+  resolveOccurrenceStatus,
   scheduledTimesForGoalOnDate,
   weekRangeContainingDate,
+  type OccurrenceStatus,
 } from '../shared/schedule-occurrence.util';
 import { visualForConquestType } from '../shared/area-visual.util';
 import { buildGoalInstanceId } from '../goals/goal-instance-id';
@@ -21,25 +22,6 @@ function plusThirtyMinutes(hhmm: string): string {
   return base.plus({ minutes: 30 }).toFormat('HH:mm');
 }
 
-function timelineStatus(
-  raw: string | null,
-  startTime: string,
-  targetDate: DateTime,
-  now: DateTime,
-  tz: string,
-): 'PENDING' | 'DONE' | 'MISSED' {
-  if (raw === 'DONE') return 'DONE';
-  const [h, m] = startTime.split(':').map(Number);
-  const slot = targetDate.setZone(tz).set({
-    hour: h || 0,
-    minute: m || 0,
-    second: 0,
-    millisecond: 0,
-  });
-  if (slot.isValid && now.toMillis() >= slot.toMillis()) return 'MISSED';
-  return 'PENDING';
-}
-
 type TimelineOccurrence = {
   instanceId: string;
   goalId: string;
@@ -49,7 +31,7 @@ type TimelineOccurrence = {
   schedule: ScheduleConfig | null;
   startTime: string;
   endTime: string;
-  status: 'PENDING' | 'DONE' | 'MISSED';
+  status: OccurrenceStatus;
   icon: string;
   accentColor: string;
 };
@@ -63,8 +45,7 @@ function toTimelineOccurrence(
   const resolvedDate = civilDate.toISODate() || '';
   const times = scheduledTimesForGoalOnDate(goal, civilDate, tz);
   const startTime = times[0] || FALLBACK_START_TIME;
-  const rawStatus = resolveDailyStatusForDate(goal, civilDate, tz, now);
-  const status = timelineStatus(rawStatus, startTime, civilDate, now, tz);
+  const status = resolveOccurrenceStatus(goal, civilDate, tz, now);
   const visual = visualForConquestType(goal.conquestType);
   const schedule = (goal.schedule ?? null) as ScheduleConfig | null;
 

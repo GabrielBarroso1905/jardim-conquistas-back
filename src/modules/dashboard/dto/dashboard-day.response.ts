@@ -34,9 +34,9 @@ export class DashboardDayOccurrenceDto {
 
   @ApiProperty({
     example: 'PENDING',
-    enum: ['PENDING', 'DONE', 'MISSED'],
+    enum: ['PENDING', 'DONE', 'MISSED', 'SKIPPED'],
   })
-  status: 'PENDING' | 'DONE' | 'MISSED';
+  status: 'PENDING' | 'DONE' | 'MISSED' | 'SKIPPED';
 
   @ApiProperty({ example: 'fitness_center' })
   icon: string;

@@ -126,6 +126,39 @@ describe('DashboardService.getDashboardWeek', () => {
 
     jest.restoreAllMocks();
   });
+
+  it('dois horários às 10:00 segue PENDING e dia passado sem colheita é MISSED', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T10:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        completed: false,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00', '18:00'] },
+        plantedTree: { growthEvents: [] },
+      },
+    ]);
+
+    const result = await service.getDashboardWeek('user-1', '2026-08-26');
+    const wednesday = result.weekGrid.find((d) => d.date === '2026-08-26');
+    const monday = result.weekGrid.find((d) => d.date === '2026-08-24');
+
+    expect(wednesday!.occurrences).toHaveLength(1);
+    expect(wednesday!.occurrences[0].status).toBe('PENDING');
+    expect(monday!.occurrences).toHaveLength(1);
+    expect(monday!.occurrences[0].status).toBe('MISSED');
+
+    jest.restoreAllMocks();
+  });
 });
 
 describe('DashboardService.getDashboardDay', () => {
@@ -253,6 +286,88 @@ describe('DashboardService.getDashboardDay', () => {
       ],
       harvestSummary: { collected: 0, total: 1 },
     });
+
+    jest.restoreAllMocks();
+  });
+
+  it('dois horários às 10:00 fica PENDING, no mesmo status da semana', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T10:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForDateForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00', '18:00'] },
+        plantedTree: { growthEvents: [] },
+      },
+    ]);
+
+    const result = await service.getDashboardDay('user-1', '2026-08-26');
+
+    expect(result.occurrences).toHaveLength(1);
+    expect(result.occurrences[0].status).toBe('PENDING');
+    expect(result.occurrences[0].startTime).toBe('08:00');
+
+    jest.restoreAllMocks();
+  });
+
+  it('dia passado sem colheita é MISSED', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T10:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForDateForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00'] },
+        plantedTree: { growthEvents: [] },
+      },
+    ]);
+
+    const result = await service.getDashboardDay('user-1', '2026-08-25');
+
+    expect(result.occurrences[0].status).toBe('MISSED');
+
+    jest.restoreAllMocks();
+  });
+
+  it('SKIPPED de hoje não entra na colheita', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T19:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForDateForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        dailyStatus: 'SKIPPED',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00'] },
+        plantedTree: { growthEvents: [] },
+      },
+    ]);
+
+    const result = await service.getDashboardDay('user-1', '2026-08-26');
+
+    expect(result.occurrences[0].status).toBe('SKIPPED');
+    expect(result.harvestSummary).toEqual({ collected: 0, total: 1 });
 
     jest.restoreAllMocks();
   });
