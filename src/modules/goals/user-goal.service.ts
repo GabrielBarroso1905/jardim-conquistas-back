@@ -24,7 +24,12 @@ import {
 export type { ResolvedScheduleFields } from '../shared/schedule-fields.util';
 export { resolveScheduleFields };
 import { getCancelledExceptionsForDate } from '../shared/cancelled-exceptions.query';
-import { parseGoalInstanceId } from './goal-instance-id';
+import {
+  assertTimelineInstanceForGoal,
+  isTimelineInstanceDone,
+  parseTimelineInstanceId,
+} from './goal-instance-occurrence.util';
+import { WorldsEventsService } from '../worlds/worlds.events.service';
 import {
   getAppTimezone,
   resolveUserTimezone,
@@ -88,6 +93,7 @@ export class UserGoalService {
     private readonly worldsGateway: WorldsGateway,
     private readonly communicationService: CommunicationService,
     private readonly storageService: StorageService,
+    private readonly worldsEventsService: WorldsEventsService,
   ) {}
 
   /**
@@ -445,32 +451,207 @@ export class UserGoalService {
     return prisma.goal.findFirst({ where: { id: goalId, userId } });
   }
 
-  private parseOwnedInstanceId(rawId: string) {
-    const parsed = parseGoalInstanceId(rawId);
-    if (!parsed) {
-      throw new BadRequestException(
-        'instanceId inválido. Use {goalId}:{YYYY-MM-DD}:{HH:mm}.',
-      );
+  private async loadGoalForInstanceOperation(goalId: string, userId: string) {
+    const row = await prisma.goal.findFirst({
+      where: { id: goalId, userId },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        description: true,
+        goalKind: true,
+        conquestType: true,
+        completed: true,
+        createdAt: true,
+        schedule: {
+          select: {
+            id: true,
+            goalId: true,
+            frequency: true,
+            at: true,
+            times: true,
+            daysOfWeek: true,
+            durationDays: true,
+            timeZone: true,
+            extra: true,
+          },
+        },
+        reminder: {
+          select: {
+            id: true,
+            goalId: true,
+            dailyStatus: true,
+            slotsToday: true,
+            lastSentAt: true,
+            sentCount: true,
+            silenceUntil: true,
+            updatedAt: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            telegramId: true,
+            whatsappId: true,
+            preferredChannel: true,
+            timezone: true,
+          },
+        },
+        plantedTree: {
+          select: {
+            id: true,
+            worldId: true,
+            growthEvents: {
+              select: {
+                id: true,
+                stage: true,
+                createdAt: true,
+                progressIndex: true,
+              },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
+      },
+    });
+    if (!row) {
+      throw new BadRequestException('Meta não encontrada');
     }
-    return parsed;
+    return { row, view: toGoalReminderView(row) };
+  }
+
+  private async revertHarvestEventsOnCivilDay(
+    plantedTreeId: string,
+    day: DateTime,
+    tz: string,
+  ): Promise<void> {
+    const events = await prisma.growthEvent.findMany({
+      where: { plantedTreeId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, stage: true, createdAt: true, progressIndex: true },
+    });
+    if (events.length === 0) return;
+
+    const sorted = [...events];
+    const initialEvent =
+      sorted[0]?.progressIndex === 1 ? sorted[0] : null;
+    const dayStart = day.setZone(tz).startOf('day');
+    const dayEnd = day.setZone(tz).endOf('day');
+
+    const toDelete = sorted.filter((ev) => {
+      if (initialEvent && ev.id === initialEvent.id) return false;
+      const at = DateTime.fromJSDate(new Date(ev.createdAt)).setZone(tz);
+      return at >= dayStart && at <= dayEnd;
+    });
+
+    if (toDelete.length === 0) return;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.growthEvent.deleteMany({
+        where: { id: { in: toDelete.map((e) => e.id) } },
+      });
+      const remaining = await tx.growthEvent.findMany({
+        where: { plantedTreeId },
+        select: { stage: true },
+      });
+      const actualStage = remaining.reduce(
+        (max, e) => Math.max(max, e.stage),
+        1,
+      );
+      await tx.plantedTree.update({
+        where: { id: plantedTreeId },
+        data: { actualStage },
+      });
+    });
   }
 
   async completeInstanceForUser(rawId: string, userId: string) {
-    const { goalId } = this.parseOwnedInstanceId(rawId);
-    return this.markGoalDoneFromReminder(goalId, userId);
+    const { goalId, date, startTime } = parseTimelineInstanceId(rawId);
+    const { row, view } = await this.loadGoalForInstanceOperation(
+      goalId,
+      userId,
+    );
+    const tz = view.timezone;
+    const now = DateTime.now();
+    const day = assertTimelineInstanceForGoal(
+      view,
+      date,
+      startTime,
+      tz,
+      now,
+    );
+
+    if (isTimelineInstanceDone(view, day, tz)) {
+      return prisma.goal.findFirst({ where: { id: goalId, userId } });
+    }
+
+    const isToday = day.hasSame(now.setZone(tz), 'day');
+    if (isToday) {
+      await prisma.goalReminder.upsert({
+        where: { goalId },
+        update: { dailyStatus: 'DONE', silenceUntil: null },
+        create: { goalId, dailyStatus: 'DONE', sentCount: 0 },
+      });
+    }
+
+    const actualType = normalizeGoalType(view.goalKind);
+    if (actualType === 'Pontual') {
+      await prisma.goal.updateMany({
+        where: { id: goalId, userId },
+        data: { completed: true },
+      });
+    }
+
+    const planted = row.plantedTree;
+    if (planted?.worldId) {
+      try {
+        await this.worldsEventsService.progressPlantedTree(planted.worldId, {
+          goalId,
+          userId,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `completeInstance: falha ao registrar growth event goalId=${goalId}`,
+          err,
+        );
+      }
+    }
+
+    return prisma.goal.findFirst({ where: { id: goalId, userId } });
   }
 
   async undoInstanceForUser(rawId: string, userId: string) {
-    const { goalId } = this.parseOwnedInstanceId(rawId);
-    const goal = await this.requireGoalOwnedByUser(goalId, userId);
-    const actualType = normalizeGoalType(goal.goalKind as any);
+    const { goalId, date, startTime } = parseTimelineInstanceId(rawId);
+    const { row, view } = await this.loadGoalForInstanceOperation(
+      goalId,
+      userId,
+    );
+    const tz = view.timezone;
+    const now = DateTime.now();
+    const day = assertTimelineInstanceForGoal(
+      view,
+      date,
+      startTime,
+      tz,
+      now,
+    );
 
-    await prisma.goalReminder.upsert({
-      where: { goalId },
-      update: { dailyStatus: 'PENDING', silenceUntil: null },
-      create: { goalId, dailyStatus: 'PENDING', sentCount: 0 },
-    });
+    const plantedTreeId = row.plantedTree?.id;
+    if (plantedTreeId) {
+      await this.revertHarvestEventsOnCivilDay(plantedTreeId, day, tz);
+    }
 
+    const isToday = day.hasSame(now.setZone(tz), 'day');
+    if (isToday) {
+      await prisma.goalReminder.upsert({
+        where: { goalId },
+        update: { dailyStatus: 'PENDING', silenceUntil: null },
+        create: { goalId, dailyStatus: 'PENDING', sentCount: 0 },
+      });
+    }
+
+    const actualType = normalizeGoalType(view.goalKind);
     if (actualType === 'Pontual') {
       await prisma.goal.updateMany({
         where: { id: goalId, userId },
