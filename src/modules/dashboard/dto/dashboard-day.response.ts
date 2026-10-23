@@ -34,9 +34,9 @@ export class DashboardDayOccurrenceDto {
 
   @ApiProperty({
     example: 'PENDING',
-    enum: ['PENDING', 'DONE', 'MISSED'],
+    enum: ['PENDING', 'DONE', 'MISSED', 'SKIPPED'],
   })
-  status: 'PENDING' | 'DONE' | 'MISSED';
+  status: 'PENDING' | 'DONE' | 'MISSED' | 'SKIPPED';
 
   @ApiProperty({ example: 'fitness_center' })
   icon: string;
@@ -49,10 +49,18 @@ export class DashboardDayOccurrenceDto {
 }
 
 export class DashboardDayHarvestSummaryDto {
-  @ApiProperty({ example: 1 })
+  @ApiProperty({
+    example: 1,
+    description:
+      'Ocorrências da timeline com status DONE no dia (uma linha por meta).',
+  })
   collected: number;
 
-  @ApiProperty({ example: 2 })
+  @ApiProperty({
+    example: 2,
+    description:
+      'Total de ocorrências no dia (metas com agenda naquele dia civil), não a soma de horários.',
+  })
   total: number;
 }
 

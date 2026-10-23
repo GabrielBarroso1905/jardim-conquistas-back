@@ -138,7 +138,10 @@ export class ReminderService {
     const snapshots = goals.map(toSnapshot);
 
     const marked = await this.claimStore.claimBatch(items, now, timezone);
-    if (!marked) return;
+    if (!marked) {
+      this.logClaimFailed(goals);
+      return;
+    }
 
     const followUpDecision = decisions.find(
       (d) => d.kind === 'follow_up' || d.kind === 'last_chance',
@@ -177,7 +180,10 @@ export class ReminderService {
     const snapshots = [toSnapshot(goal)];
 
     const marked = await this.claimStore.claimBatch([item], now, timezone);
-    if (!marked) return;
+    if (!marked) {
+      this.logClaimFailed([goal]);
+      return;
+    }
 
     try {
       const composed = await this.copyBuilder.composeSingle(
@@ -201,6 +207,14 @@ export class ReminderService {
         error as Error,
       );
       await this.claimStore.rollback(snapshots);
+    }
+  }
+
+  private logClaimFailed(goals: ReminderGoalRecord[]) {
+    for (const g of goals) {
+      this.logger.warn(
+        `reminder_claim_failed goalId=${g.id} userId=${g.userId} dailyStatus=${String(g.reminder.dailyStatus)} lastSentAt=${g.reminder.lastSentAt ?? 'null'}`,
+      );
     }
   }
 

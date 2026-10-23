@@ -19,6 +19,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "diagnose:reminder": "ts-node -r tsconfig-paths/register scripts/diagnose-reminder.ts",
     "migrate:schedule-at": "ts-node -r tsconfig-paths/register scripts/migrate-schedule-at-to-iso.ts",
     "migrate:tree-catalog-keys": "ts-node -r tsconfig-paths/register scripts/migrate-tree-catalog-keys.ts",
     "migrate:world-svg-keys": "ts-node -r tsconfig-paths/register scripts/migrate-world-svg-keys.ts",

@@ -5,9 +5,10 @@ import { UserGoalService } from '../goals/user-goal.service';
 import {
   expectedSlotCountForGoalOnDate,
   monthRangeFromInput,
-  resolveDailyStatusForDate,
+  resolveOccurrenceStatus,
   scheduledTimesForGoalOnDate,
   weekRangeContainingDate,
+  type OccurrenceStatus,
 } from '../shared/schedule-occurrence.util';
 import { visualForConquestType } from '../shared/area-visual.util';
 import { buildGoalInstanceId } from '../goals/goal-instance-id';
@@ -21,23 +22,12 @@ function plusThirtyMinutes(hhmm: string): string {
   return base.plus({ minutes: 30 }).toFormat('HH:mm');
 }
 
-function timelineStatus(
-  raw: string | null,
-  startTime: string,
-  targetDate: DateTime,
-  now: DateTime,
-  tz: string,
-): 'PENDING' | 'DONE' | 'MISSED' {
-  if (raw === 'DONE') return 'DONE';
-  const [h, m] = startTime.split(':').map(Number);
-  const slot = targetDate.setZone(tz).set({
-    hour: h || 0,
-    minute: m || 0,
-    second: 0,
-    millisecond: 0,
-  });
-  if (slot.isValid && now.toMillis() >= slot.toMillis()) return 'MISSED';
-  return 'PENDING';
+function progressPercentage(harvested: number, total: number): number {
+  if (total === 0) return 0;
+  return Math.min(
+    100,
+    Math.round((Math.min(harvested, total) / total) * 100),
+  );
 }
 
 type TimelineOccurrence = {
@@ -49,10 +39,19 @@ type TimelineOccurrence = {
   schedule: ScheduleConfig | null;
   startTime: string;
   endTime: string;
-  status: 'PENDING' | 'DONE' | 'MISSED';
+  status: OccurrenceStatus;
   icon: string;
   accentColor: string;
 };
+
+function harvestSummaryFromOccurrences(
+  occurrences: Pick<TimelineOccurrence, 'status'>[],
+): { collected: number; total: number } {
+  return {
+    total: occurrences.length,
+    collected: occurrences.filter((o) => o.status === 'DONE').length,
+  };
+}
 
 function toTimelineOccurrence(
   goal: any,
@@ -63,8 +62,7 @@ function toTimelineOccurrence(
   const resolvedDate = civilDate.toISODate() || '';
   const times = scheduledTimesForGoalOnDate(goal, civilDate, tz);
   const startTime = times[0] || FALLBACK_START_TIME;
-  const rawStatus = resolveDailyStatusForDate(goal, civilDate, tz, now);
-  const status = timelineStatus(rawStatus, startTime, civilDate, now, tz);
+  const status = resolveOccurrenceStatus(goal, civilDate, tz, now);
   const visual = visualForConquestType(goal.conquestType);
   const schedule = (goal.schedule ?? null) as ScheduleConfig | null;
 
@@ -120,12 +118,10 @@ export class DashboardService {
       toTimelineOccurrence(g, targetDate, now, tz),
     );
 
-    const collected = occurrences.filter((o) => o.status === 'DONE').length;
-
     return {
       date: resolvedDate,
       occurrences,
-      harvestSummary: { collected, total: occurrences.length },
+      harvestSummary: harvestSummaryFromOccurrences(occurrences),
     };
   }
 
@@ -162,7 +158,7 @@ export class DashboardService {
       };
     }
 
-    const { monday, sundayEnd, nextMonday } = weekRangeContainingDate(
+    const { monday, sundayEnd } = weekRangeContainingDate(
       anchor,
       tz,
     );
@@ -177,7 +173,8 @@ export class DashboardService {
       return true;
     });
 
-    let totalSlots = 0;
+    let totalOccurrences = 0;
+    let harvestedOccurrences = 0;
     const weekGrid: Array<{
       date: string | null;
       expectedSlots: number;
@@ -196,52 +193,19 @@ export class DashboardService {
           occurrences.push(toTimelineOccurrence(g, d, now, tz));
         }
       }
-      totalSlots += expectedSlots;
+      const daySummary = harvestSummaryFromOccurrences(occurrences);
+      totalOccurrences += daySummary.total;
+      harvestedOccurrences += daySummary.collected;
       weekGrid.push({
         date: d.toISODate(),
         expectedSlots,
-        harvestCount: 0,
+        harvestCount: daySummary.collected,
         occurrences,
       });
     }
 
-    const growthEvents = await prisma.growthEvent.findMany({
-      where: {
-        createdAt: {
-          gte: monday.toUTC().toJSDate(),
-          lt: nextMonday.toUTC().toJSDate(),
-        },
-        plantedTree: {
-          goal: {
-            userId,
-            ...(area ? { conquestType: area } : {}),
-          },
-        },
-      },
-      select: { createdAt: true },
-    });
-
-    const harvestByDay = new Map<string, number>();
-    for (const ev of growthEvents) {
-      const key = DateTime.fromJSDate(ev.createdAt).setZone(tz).toISODate();
-      if (!key) continue;
-      harvestByDay.set(key, (harvestByDay.get(key) || 0) + 1);
-    }
-
-    let harvestCount = 0;
-    for (const cell of weekGrid) {
-      const c = cell.date ? harvestByDay.get(cell.date) || 0 : 0;
-      cell.harvestCount = c;
-      harvestCount += c;
-    }
-
-    const percentage =
-      totalSlots === 0
-        ? 0
-        : Math.min(
-            100,
-            Math.round((Math.min(harvestCount, totalSlots) / totalSlots) * 100),
-          );
+    const harvestCount = harvestedOccurrences;
+    const percentage = progressPercentage(harvestedOccurrences, totalOccurrences);
 
     const layerMap = new Map<string, number>();
     for (const g of inScope) {
@@ -263,7 +227,7 @@ export class DashboardService {
       weekGrid,
       weeklyProgress: {
         percentage,
-        total: totalSlots,
+        total: totalOccurrences,
         harvested: harvestCount,
       },
       harvestCount,
@@ -323,7 +287,9 @@ export class DashboardService {
     };
 
     const monthGrid: DayCell[] = [];
-    let totalSlots = 0;
+    let totalOccurrences = 0;
+    let harvestedOccurrences = 0;
+    let activeDays = 0;
 
     for (let i = 0; i < daysInMonth; i++) {
       const d = monthStart.plus({ days: i });
@@ -336,11 +302,14 @@ export class DashboardService {
           occurrences.push(toTimelineOccurrence(g, d, now, tz));
         }
       }
-      totalSlots += expectedSlots;
+      const daySummary = harvestSummaryFromOccurrences(occurrences);
+      totalOccurrences += daySummary.total;
+      harvestedOccurrences += daySummary.collected;
+      if (daySummary.collected > 0) activeDays += 1;
       monthGrid.push({
         date: d.toISODate(),
         expectedSlots,
-        harvestCount: 0,
+        harvestCount: daySummary.collected,
         occurrences,
       });
     }
@@ -368,13 +337,9 @@ export class DashboardService {
       },
     });
 
-    const harvestByDay = new Map<string, number>();
     const harvestByGoal = new Map<string, { title: string; count: number }>();
 
     for (const ev of growthEvents) {
-      const key = DateTime.fromJSDate(ev.createdAt).setZone(tz).toISODate();
-      if (key) harvestByDay.set(key, (harvestByDay.get(key) || 0) + 1);
-
       const gid = ev.plantedTree?.goal?.id;
       const title = ev.plantedTree?.goal?.title;
       if (gid) {
@@ -385,22 +350,8 @@ export class DashboardService {
       }
     }
 
-    let harvestCount = 0;
-    let activeDays = 0;
-    for (const cell of monthGrid) {
-      const c = cell.date ? harvestByDay.get(cell.date) || 0 : 0;
-      cell.harvestCount = c;
-      harvestCount += c;
-      if (c > 0) activeDays += 1;
-    }
-
-    const percentage =
-      totalSlots === 0
-        ? 0
-        : Math.min(
-            100,
-            Math.round((Math.min(harvestCount, totalSlots) / totalSlots) * 100),
-          );
+    const harvestCount = harvestedOccurrences;
+    const percentage = progressPercentage(harvestedOccurrences, totalOccurrences);
 
     const monthHighlights = Array.from(harvestByGoal.entries())
       .map(([goalId, { title, count }]) => ({
@@ -417,7 +368,11 @@ export class DashboardService {
       monthStart: monthStart.toISODate(),
       monthEnd: monthEnd.toISODate(),
       monthGrid,
-      monthlyGoal: { percentage, total: totalSlots, harvested: harvestCount },
+      monthlyGoal: {
+        percentage,
+        total: totalOccurrences,
+        harvested: harvestCount,
+      },
       activeDays,
       monthHighlights,
     };

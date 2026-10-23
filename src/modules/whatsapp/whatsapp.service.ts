@@ -232,7 +232,7 @@ export class WhatsAppService implements OnModuleInit {
         this.logger.warn(
           `[WHATSAPP] Envio abortado para ${target}: erro terminal da Evolution API (${e.message})`,
         );
-        return null;
+        return undefined;
       }
       this.logger.warn(
         `[WHATSAPP] Falha ao enviar resposta para ${target}: ${e instanceof Error ? e.message : String(e)}`,

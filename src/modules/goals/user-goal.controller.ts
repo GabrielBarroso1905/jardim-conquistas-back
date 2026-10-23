@@ -128,8 +128,8 @@ export class GoalInstanceController {
     summary: 'Concluir ocorrência da timeline',
     description:
       '`id` é o `instanceId` da timeline (`{goalId}:{YYYY-MM-DD}:{HH:mm}`). ' +
-      'Sem tabela de instância, o back parseia a string e conclui a meta daquele dia. ' +
-      'URL-encode o id (contém `:`).',
+      'Valida data, horário e ownership; conclui o dia civil (reminder se hoje) e registra ' +
+      'colheita no jardim. Repetir a mesma ocorrência é idempotente. URL-encode o id.',
   })
   @ApiResponse({ status: 201, description: 'Concluída' })
   async completeInstance(@Param('id') id: string, @Req() req: any) {
@@ -141,7 +141,8 @@ export class GoalInstanceController {
     summary: 'Desfazer ocorrência da timeline',
     description:
       '`id` é o `instanceId` da timeline (`{goalId}:{YYYY-MM-DD}:{HH:mm}`). ' +
-      'Volta o status do dia para PENDING. URL-encode o id.',
+      'Remove a colheita do dia civil (preserva plantio progressIndex=1); se for hoje, ' +
+      'volta o reminder para PENDING. URL-encode o id.',
   })
   @ApiResponse({ status: 201, description: 'Desfeita' })
   async undoInstance(@Param('id') id: string, @Req() req: any) {

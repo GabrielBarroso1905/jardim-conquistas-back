@@ -25,7 +25,7 @@ export class DashboardController {
     description:
       'Retorna informações agregadas para a visão diária, semanal ou mensal. ' +
       'Na visão day (`period=day`) devolve `occurrences` da timeline ' +
-      '(1 por meta; `schedule.times` lista os horários) com `status` PENDING|DONE|MISSED. ' +
+      '(1 por meta; `schedule.times` lista os horários) com `status` PENDING|DONE|MISSED|SKIPPED. ' +
       'Na visão week (`period=week`) e month (`period=month`), cada célula em ' +
       '`weekGrid[].occurrences` / `monthGrid[].occurrences` usa o mesmo item do Dia ' +
       '(1 por meta; instanceId da data da célula).',
