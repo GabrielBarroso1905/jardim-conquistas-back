@@ -5,10 +5,17 @@ export class DashboardMonthDayDto {
   @ApiProperty({ description: 'Data do dia (ISO)', example: '2026-10-16' })
   date: string | null;
 
-  @ApiProperty({ description: 'Total de slots esperados no dia', example: 2 })
+  @ApiProperty({
+    description:
+      'Horários agendados no dia; não entra no percentual de monthlyGoal.',
+    example: 2,
+  })
   expectedSlots: number;
 
-  @ApiProperty({ description: 'Colheitas registradas no dia', example: 1 })
+  @ApiProperty({
+    description: 'Ocorrências DONE na timeline naquele dia.',
+    example: 1,
+  })
   harvestCount: number;
 
   @ApiProperty({
@@ -20,13 +27,22 @@ export class DashboardMonthDayDto {
 }
 
 export class DashboardMonthProgressDto {
-  @ApiProperty({ example: 13 })
+  @ApiProperty({
+    example: 13,
+    description: 'min(harvested, total) / total no mês, em percentual.',
+  })
   percentage: number;
 
-  @ApiProperty({ example: 31 })
+  @ApiProperty({
+    example: 31,
+    description: 'Total de ocorrências da timeline no mês (não slots).',
+  })
   total: number;
 
-  @ApiProperty({ example: 4 })
+  @ApiProperty({
+    example: 4,
+    description: 'Ocorrências com status DONE no mês.',
+  })
   harvested: number;
 }
 
@@ -37,7 +53,10 @@ export class DashboardMonthHighlightDto {
   @ApiProperty()
   title: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description:
+      'Eventos de crescimento no mês (métrica distinta de dias DONE na timeline).',
+  })
   harvestCount: number;
 }
 

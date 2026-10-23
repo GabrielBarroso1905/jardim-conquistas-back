@@ -15,6 +15,26 @@ O `MISSED` do lembrete (last-chance sem resposta) é outro conceito. Está no co
 - `startTime` é o primeiro horário. `instanceId` é `{goalId}:{YYYY-MM-DD}:{startTime}`.
 - `endTime` é `startTime` mais 30 minutos e só serve para exibir. Não atrasa o `MISSED`.
 - `harvestSummary.collected` conta linhas `DONE`.
+- `harvestSummary.total` conta linhas da timeline no dia (uma por meta), não a soma de horários.
+
+## Indicadores de progresso
+
+Unidade de contabilização para percentuais e resumos: **ocorrência da timeline** (uma por meta por dia civil em que a meta tem agenda). Horários agendados são métrica separada.
+
+| Campo | Significado |
+|-------|-------------|
+| `harvestSummary.collected` / `weeklyProgress.harvested` / `monthlyGoal.harvested` | Ocorrências com `status === 'DONE'` no período |
+| `harvestSummary.total` / `weeklyProgress.total` / `monthlyGoal.total` | Quantidade de ocorrências no período (soma de `occurrences.length` por célula na semana/mês) |
+| `weekGrid[].harvestCount` / `monthGrid[].harvestCount` | Ocorrências `DONE` naquele dia civil |
+| `weekGrid[].expectedSlots` / `monthGrid[].expectedSlots` | Horários agendados no dia (`expectedSlotCountForGoalOnDate`); **não** entra no denominador do progresso |
+
+Exemplo: meta `daily` com `times: ['08:00', '18:00']` em um dia → `expectedSlots = 2`, `harvestSummary.total = 1`. Na semana com essa meta todos os dias → `weeklyProgress.total = 7`, não 14.
+
+O percentual (`weeklyProgress.percentage`, `monthlyGoal.percentage`) usa `min(harvested, total) / total`.
+
+`monthHighlights` ranqueia **eventos de crescimento** por meta no mês; não é a mesma métrica que dias concluídos na timeline.
+
+Implementação: `harvestSummaryFromOccurrences` em `src/modules/dashboard/dashboard.service.ts`.
 
 ## Ordem
 

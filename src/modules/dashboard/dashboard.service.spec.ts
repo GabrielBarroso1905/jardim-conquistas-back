@@ -123,6 +123,62 @@ describe('DashboardService.getDashboardWeek', () => {
       endTime: '08:30',
       schedule: { type: 'daily', times: ['08:00', '18:00'] },
     });
+    expect(wednesday!.harvestCount).toBe(0);
+    expect(result.weeklyProgress).toEqual({
+      percentage: 0,
+      total: 7,
+      harvested: 0,
+    });
+    expect(result.harvestCount).toBe(0);
+
+    jest.restoreAllMocks();
+  });
+
+  it('weeklyProgress conta ocorrências DONE, não growth events brutos', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T19:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        completed: false,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00'] },
+        plantedTree: {
+          growthEvents: [
+            {
+              id: 'plant',
+              createdAt: new Date('2026-01-01T12:00:00.000Z'),
+              progressIndex: 1,
+            },
+            {
+              id: 'harvest-mon',
+              createdAt: new Date('2026-08-24T15:00:00.000Z'),
+              progressIndex: 2,
+            },
+          ],
+        },
+      },
+    ]);
+
+    const result = await service.getDashboardWeek('user-1', '2026-08-26');
+    const monday = result.weekGrid.find((d) => d.date === '2026-08-24');
+
+    expect(monday!.occurrences[0].status).toBe('DONE');
+    expect(monday!.harvestCount).toBe(1);
+    expect(result.weeklyProgress).toEqual({
+      percentage: 14,
+      total: 7,
+      harvested: 1,
+    });
+    expect(result.harvestCount).toBe(1);
 
     jest.restoreAllMocks();
   });
@@ -464,7 +520,55 @@ describe('DashboardService.getDashboardMonth', () => {
       endTime: '08:30',
       schedule: { type: 'daily', times: ['08:00', '18:00'] },
     });
+    expect(result.monthlyGoal.total).toBe(31);
+    expect(result.monthlyGoal.harvested).toBe(0);
+    expect(result.activeDays).toBe(0);
 
     jest.restoreAllMocks();
+  });
+
+  it('monthlyGoal e activeDays seguem ocorrências DONE no grid', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T19:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        completed: false,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00', '18:00'] },
+        plantedTree: {
+          growthEvents: [
+            {
+              id: 'plant',
+              createdAt: new Date('2026-01-01T12:00:00.000Z'),
+              progressIndex: 1,
+            },
+            {
+              id: 'harvest-26',
+              createdAt: new Date('2026-08-26T12:00:00.000Z'),
+              progressIndex: 2,
+            },
+          ],
+        },
+      },
+    ]);
+
+    const result = await service.getDashboardMonth('user-1', '2026-08-26');
+    const day26 = result.monthGrid.find((d) => d.date === '2026-08-26');
+
+    expect(day26!.expectedSlots).toBe(2);
+    expect(day26!.occurrences).toHaveLength(1);
+    expect(day26!.occurrences[0].status).toBe('DONE');
+    expect(day26!.harvestCount).toBe(1);
+    expect(result.monthlyGoal.harvested).toBe(1);
+    expect(result.activeDays).toBe(1);
   });
 });
