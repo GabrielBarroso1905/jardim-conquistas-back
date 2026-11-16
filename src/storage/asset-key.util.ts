@@ -45,12 +45,8 @@ export function extractAssetKey(
     return null;
   }
 
-  if (
-    url.hostname.includes('supabase.co') &&
-    url.pathname.includes('/storage/v1/object/public/')
-  ) {
-    return null;
-  }
+  const fromSupabase = extractSupabaseStorageObjectPath(url);
+  if (fromSupabase) return fromSupabase;
 
   const bucket =
     options.bucket || process.env.S3_BUCKET || 'jardim-das-conquistas';
@@ -70,11 +66,31 @@ export function extractAssetKey(
   return null;
 }
 
-export function isSupabasePublicUrl(value: string): boolean {
-  return (
-    typeof value === 'string' &&
-    value.includes('supabase.co/storage/v1/object/public/')
+/** Path do objeto dentro do bucket (assets/...) a partir de URL do Storage Supabase. */
+export function extractSupabaseStorageObjectPath(url: URL): string | null {
+  const m = url.pathname.match(
+    /\/storage\/v1\/object\/(?:public|sign|authenticated)\/[^/]+\/(.+)/,
   );
+  if (!m?.[1]) return null;
+  return decodeURIComponent(m[1].replace(/^\/+/, ''));
+}
+
+export function isSupabaseStorageUrl(value: string): boolean {
+  if (typeof value !== 'string' || !value.startsWith('http')) return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.pathname.includes('/storage/v1/object/') &&
+      Boolean(extractSupabaseStorageObjectPath(url))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** @deprecated Use isSupabaseStorageUrl — bucket privado não deve usar URL pública. */
+export function isSupabasePublicUrl(value: string): boolean {
+  return isSupabaseStorageUrl(value);
 }
 
 /**

@@ -1,4 +1,16 @@
-import { normalizeWorldSvgKey } from './asset-key.util';
+import {
+  extractAssetKey,
+  normalizeWorldSvgKey,
+} from './asset-key.util';
+
+describe('extractAssetKey (Supabase)', () => {
+  it('extrai path de URL pública self-hosted', () => {
+    const key = extractAssetKey(
+      'https://supabase.sowtech.io/storage/v1/object/public/jardim-das-conquistas/assets/words/lago/Lago.svg',
+    );
+    expect(key).toBe('assets/words/lago/Lago.svg');
+  });
+});
 
 describe('normalizeWorldSvgKey', () => {
   it('mantém keys no formato assets/...', () => {
