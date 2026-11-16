@@ -146,3 +146,73 @@ src/
 ```
 
 Prisma: [`prisma/schema.prisma`](prisma/schema.prisma). Scripts extras: `migrate:schedule-at`, `migrate:tree-catalog-keys`, `s3:check-cors`, `s3:apply-cors`.
+
+## Migrar PostgreSQL (Coolify → outro host)
+
+Para copiar **schema + dados** do banco atual para outro (ex. Supabase), defina no `.env`:
+
+- `DATABASE_URL` — origem (produção atual)
+- `DATABASE_URL_NEW` — destino vazio
+
+Pré-requisito: cliente PostgreSQL (`pg_dump`, `pg_restore`, `psql`) no PATH ([download Windows](https://www.postgresql.org/download/windows/)). Alternativa: imagem Docker `postgres:16` com os mesmos comandos apontando para as URLs do `.env`.
+
+```bash
+npm run db:transfer:dry-run   # testa conexão e mostra passos
+npm run db:transfer             # gera backups/jardim-*.dump e restaura no destino
+```
+
+Recomenda-se pausar a API no Coolify durante o `pg_dump` para evitar writes no meio do backup. Após as contagens baterem:
+
+1. Substitua `DATABASE_URL` pelo valor que estava em `DATABASE_URL_NEW` (local e no Coolify).
+2. Redeploy; `npx prisma migrate status` deve ficar *up to date*.
+3. Valide `GET /health`, login e uma meta/lembrete.
+4. Guarde o `.dump` em `backups/` como rollback até validar em produção.
+
+## Storage (Supabase privado)
+
+Com `STORAGE_PROVIDER=supabase` (default quando `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` existem), o `StorageService` lê o bucket via **Supabase SDK** (download + `createSignedUrl`). Bucket **privado** é suportado: o servidor usa a service role; o front recebe URLs assinadas ou `S3_ASSET_PROXY=true` (`/api/assets/...`).
+
+| Variável | Uso |
+| --- | --- |
+| `STORAGE_PROVIDER` | `supabase` ou `s3` (fallback Garage) |
+| `SUPABASE_STORAGE_BUCKET` | Nome do bucket (ex. `jardim-das-conquistas`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Obrigatório no servidor** para bucket privado |
+| `S3_ASSET_PROXY` + `PUBLIC_BASE_URL` | Recomendado no front (Pixi same-origin) |
+
+## Migrar storage (Garage/S3 → Supabase Storage)
+
+Para **copiar** objetos do Garage para o Supabase antes do cutover:
+
+### 1. Copiar objetos (mesmas keys, ex. `assets/pontual/...`)
+
+No `.env`:
+
+- **Origem:** `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` (Garage atual)
+- **Destino:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (obrigatório para upload; a `SUPABASE_KEY` publishable **não** serve)
+- Opcional: `SUPABASE_STORAGE_BUCKET=jardim-das-conquistas` (default = `S3_BUCKET`)
+
+```bash
+npm run storage:transfer:dry-run              # conta objetos no Garage
+npm run storage:transfer                        # copia tudo
+npm run storage:transfer -- --prefix assets/    # só sob assets/
+npm run storage:transfer -- --skip-existing    # retoma sem reenviar
+```
+
+### 2. Cutover no Coolify
+
+Defina `STORAGE_PROVIDER=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` e mantenha `S3_ASSET_PROXY=true`. As variáveis `S3_*` podem ficar só para o script `storage:transfer` (origem Garage).
+
+### 3. Banco de dados (já alinhado se você rodou as migrations de keys)
+
+- `World.svgPath` e `TreeCatalog.stages` devem usar **keys** `assets/...`, não URLs do Garage.
+- Se ainda houver URLs antigas: `npm run migrate:tree-catalog-keys` e `npm run migrate:world-svg-keys`.
+
+### 4. Validar
+
+- `npm run s3:check-cors` (ou proxy) com o novo endpoint
+- Abrir um mundo no front (SVG de fundo + estágios de árvore)
+- `GET /api/assets/assets/...` se proxy ativo
+
+### Self-hosted Supabase (`supabase.sowtech.io`)
+
+Ajuste `SUPABASE_URL` (e endpoint S3, se diferente do cloud) para o host do seu stack. Se usar domínio próprio em URLs públicas, garanta CORS no bucket Storage.

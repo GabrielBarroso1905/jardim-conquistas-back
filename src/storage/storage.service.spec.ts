@@ -24,6 +24,9 @@ describe('StorageService.resolveAsset', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.STORAGE_PROVIDER = 's3';
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     process.env.S3_BUCKET = 'jardim-das-conquistas';
     process.env.S3_ENDPOINT =
       'https://s3-hk3uuyv295rhco7h32j0zt4l.coolify.chebl.cloud';
@@ -64,12 +67,14 @@ describe('StorageService.resolveAsset', () => {
     expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
   });
 
-  it('devolve URL pública do Supabase intacta', async () => {
+  it('extrai key de URL antiga do Supabase e assina (bucket privado)', async () => {
     const url =
       'https://fgnernsoessdzkixnnwo.supabase.co/storage/v1/object/public/jardim-das-conquistas/assets/continua/trees/a/1.png';
     const result = await service.resolveAsset(url);
-    expect(result).toBe(url);
-    expect(mockGetSignedUrl).not.toHaveBeenCalled();
+    expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
+    expect(result).toBe(
+      'https://signed.example/assets/continua/trees/a/1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+    );
   });
 
   it('devolve URL https desconhecida intacta', async () => {
@@ -106,6 +111,9 @@ describe('StorageService.getObject', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.STORAGE_PROVIDER = 's3';
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     process.env.S3_BUCKET = 'jardim-das-conquistas';
     process.env.S3_ENDPOINT = 'https://s3-hk3uuyv295rhco7h32j0zt4l.coolify.chebl.cloud';
     process.env.S3_REGION = 'garage';

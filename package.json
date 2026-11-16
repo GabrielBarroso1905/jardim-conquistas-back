@@ -23,7 +23,11 @@
     "migrate:tree-catalog-keys": "ts-node -r tsconfig-paths/register scripts/migrate-tree-catalog-keys.ts",
     "migrate:world-svg-keys": "ts-node -r tsconfig-paths/register scripts/migrate-world-svg-keys.ts",
     "s3:check-cors": "bash scripts/check-s3-cors.sh",
-    "s3:apply-cors": "bash scripts/apply-s3-cors.sh"
+    "s3:apply-cors": "bash scripts/apply-s3-cors.sh",
+    "db:transfer": "bash scripts/transfer-database.sh",
+    "db:transfer:dry-run": "bash scripts/transfer-database.sh --dry-run",
+    "storage:transfer": "ts-node -r tsconfig-paths/register scripts/transfer-storage.ts",
+    "storage:transfer:dry-run": "ts-node -r tsconfig-paths/register scripts/transfer-storage.ts --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1109.0",

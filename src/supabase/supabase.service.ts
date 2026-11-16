@@ -1,14 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from './supabase-client.factory';
 
 @Injectable()
 export class SupabaseService {
   private client: SupabaseClient;
 
   constructor() {
-    const url = process.env.SUPABASE_URL!;
-    const key = process.env.SUPABASE_KEY!;
-    this.client = createClient(url, key);
+    const client = createSupabaseAdminClient();
+    if (!client) {
+      throw new Error(
+        'Supabase não configurado: defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (recomendado) ou SUPABASE_KEY',
+      );
+    }
+    this.client = client;
   }
 
   getClient() {

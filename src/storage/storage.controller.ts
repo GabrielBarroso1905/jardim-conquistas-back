@@ -19,9 +19,9 @@ export class StorageController {
 
   @Get('*path')
   @ApiOperation({
-    summary: 'Proxy de asset S3',
+    summary: 'Proxy de asset (Supabase Storage ou S3)',
     description:
-      'Serve objetos do bucket S3/Garage same-origin (evita CORS no Pixi). ' +
+      'Serve objetos do bucket (Storage privado Supabase ou S3/Garage) same-origin, evitando CORS no Pixi. ' +
       'Ativado quando S3_ASSET_PROXY=true; URLs retornadas pela API apontam para este endpoint.',
   })
   @ApiParam({

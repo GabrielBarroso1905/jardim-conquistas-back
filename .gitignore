@@ -35,6 +35,10 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# Local DB dumps (transfer-database.sh)
+/backups
+*.dump
+
 # dotenv environment variable files
 .env
 .env.development.local

@@ -34,9 +34,12 @@ export const envValidationSchema = Joi.object({
   S3_ACCESS_KEY: Joi.string().optional(),
   S3_SECRET_KEY: Joi.string().optional(),
 
-  // Supabase
+  // Supabase (Storage privado: use SERVICE_ROLE no servidor)
   SUPABASE_URL: Joi.string().uri().optional(),
   SUPABASE_KEY: Joi.string().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: Joi.string().optional(),
+  SUPABASE_STORAGE_BUCKET: Joi.string().optional(),
+  STORAGE_PROVIDER: Joi.string().valid('supabase', 's3').optional(),
 
   // URLs públicas
   PUBLIC_BASE_URL: Joi.string().uri().optional(),
