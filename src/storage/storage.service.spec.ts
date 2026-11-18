@@ -13,9 +13,10 @@ jest.mock('@aws-sdk/client-s3', () => ({
     })),
 }));
 
+import { Logger } from '@nestjs/common';
 import { S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { StorageService } from './storage.service';
+import { StorageService, StorageUpstreamError } from './storage.service';
 
 const mockGetSignedUrl = getSignedUrl as jest.Mock;
 
@@ -137,8 +138,33 @@ describe('StorageService.getObject', () => {
     await expect(service.getObject('assets/words/lago/bg.svg')).resolves.toEqual({ body: null });
   });
 
-  it('propaga erros que não são objeto ausente', async () => {
+  it('loga e propaga erros que não são objeto ausente', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
     mockSend().mockRejectedValue(new Error('boom'));
-    await expect(service.getObject('assets/words/lago/Lago.svg')).rejects.toThrow('boom');
+
+    await expect(
+      service.getObject('assets/words/lago/Lago.svg'),
+    ).rejects.toBeInstanceOf(StorageUpstreamError);
+
+    expect(errorSpy).toHaveBeenCalled();
+    const logged = String(errorSpy.mock.calls[0][0]);
+    expect(logged).toContain('assets/words/lago/Lago.svg');
+    expect(logged).toContain('jardim-das-conquistas');
+    expect(logged).toContain('s3');
+    expect(logged).toContain('boom');
+    errorSpy.mockRestore();
+  });
+
+  it('não trata AccessDenied como objeto ausente', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    mockSend().mockRejectedValue({
+      name: 'AccessDenied',
+      $metadata: { httpStatusCode: 403 },
+    });
+    await expect(
+      service.getObject('assets/words/lago/Lago.svg'),
+    ).rejects.toBeInstanceOf(StorageUpstreamError);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });

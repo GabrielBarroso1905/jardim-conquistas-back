@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -13,6 +13,16 @@ import { createSupabaseAdminClient } from '../supabase/supabase-client.factory';
 
 type SignedCacheEntry = { url: string; expiresAt: number };
 
+export class StorageUpstreamError extends Error {
+  constructor(
+    readonly key: string,
+    readonly detail: string,
+  ) {
+    super(`Failed to fetch asset from storage: ${key}`);
+    this.name = 'StorageUpstreamError';
+  }
+}
+
 export type S3ObjectResult = {
   body: Readable | null;
   contentType?: string;
@@ -21,6 +31,7 @@ export type S3ObjectResult = {
 
 @Injectable()
 export class StorageService {
+  private readonly logger = new Logger(StorageService.name);
   private readonly provider: StorageProvider;
   private readonly client: S3Client | null;
   private readonly supabase: SupabaseClient | null;
@@ -37,7 +48,11 @@ export class StorageService {
     this.useAssetProxy =
       process.env.S3_ASSET_PROXY === 'true' ||
       process.env.S3_ASSET_PROXY === '1';
-    this.publicBaseUrl = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    this.publicBaseUrl = (
+      process.env.ASSETS_PUBLIC_BASE_URL ||
+      process.env.PUBLIC_BASE_URL ||
+      ''
+    ).replace(/\/$/, '');
 
     if (this.provider === 'supabase') {
       this.supabase = createSupabaseAdminClient();
@@ -64,7 +79,7 @@ export class StorageService {
   buildProxyUrl(key: string): string {
     if (!this.publicBaseUrl) {
       throw new Error(
-        'PUBLIC_BASE_URL is required when S3_ASSET_PROXY is enabled',
+        'ASSETS_PUBLIC_BASE_URL or PUBLIC_BASE_URL is required when S3_ASSET_PROXY is enabled',
       );
     }
     const encoded = key
@@ -98,27 +113,42 @@ export class StorageService {
       };
     } catch (err) {
       if (isMissingS3Object(err)) return { body: null };
-      throw err;
+      throw this.failGetObject(key, err);
     }
   }
 
   private async getObjectFromSupabase(key: string): Promise<S3ObjectResult> {
-    const { data, error } = await this.supabase!.storage
-      .from(this.bucket)
-      .download(key);
+    try {
+      const { data, error } = await this.supabase!.storage
+        .from(this.bucket)
+        .download(key);
 
-    if (error) {
-      if (isSupabaseNotFound(error)) return { body: null };
-      throw error;
+      if (error) {
+        const missingDiag = await diagnoseSupabaseDownloadError(error);
+
+        if (isSupabaseNotFound(error) || missingDiag.treatAsMissing) {
+          if (missingDiag.treatAsMissing && !isSupabaseNotFound(error)) {
+            this.logger.warn(
+              `Storage list/download mismatch for ${key}: HTTP ${missingDiag.httpStatus} ${missingDiag.bodySnippet ?? ''}`.trim(),
+            );
+          }
+          return { body: null };
+        }
+        throw this.failGetObject(key, error, missingDiag);
+      }
+      if (!data) return { body: null };
+
+      const buffer = Buffer.from(await data.arrayBuffer());
+      return {
+        body: Readable.from(buffer),
+        contentType: data.type || guessContentType(key),
+        contentLength: buffer.length,
+      };
+    } catch (err) {
+      if (err instanceof StorageUpstreamError) throw err;
+      if (isSupabaseNotFound(err as { message?: string })) return { body: null };
+      throw this.failGetObject(key, err);
     }
-    if (!data) return { body: null };
-
-    const buffer = Buffer.from(await data.arrayBuffer());
-    return {
-      body: Readable.from(buffer),
-      contentType: data.type || guessContentType(key),
-      contentLength: buffer.length,
-    };
   }
 
   async getSignedUrl(key: string, expiresIn = this.expiresIn): Promise<string> {
@@ -216,6 +246,92 @@ export class StorageService {
       treeCatalog: await this.signTreeCatalog(planted.treeCatalog),
     };
   }
+
+  private failGetObject(
+    key: string,
+    err: unknown,
+    supabaseDiag?: SupabaseDownloadDiag,
+  ): StorageUpstreamError {
+    const summary = summarizeStorageError(err, supabaseDiag);
+    this.logger.error(
+      `Failed to fetch asset ${JSON.stringify({
+        key,
+        provider: this.provider,
+        bucket: this.bucket,
+        status: summary.status,
+        code: summary.code,
+        message: summary.message,
+        httpStatus: supabaseDiag?.httpStatus,
+        bodySnippet: supabaseDiag?.bodySnippet,
+      })}`,
+    );
+    return new StorageUpstreamError(key, summary.message);
+  }
+}
+
+type SupabaseDownloadDiag = {
+  treatAsMissing: boolean;
+  httpStatus?: number;
+  bodySnippet?: string;
+  apiStatusCode?: string;
+};
+
+async function diagnoseSupabaseDownloadError(
+  err: unknown,
+): Promise<SupabaseDownloadDiag> {
+  const base: SupabaseDownloadDiag = { treatAsMissing: false };
+  if (!err || typeof err !== 'object') return base;
+
+  const storageErr = err as {
+    name?: string;
+    originalError?: Response;
+    statusCode?: string | number;
+    error?: string;
+    message?: string;
+  };
+
+  if (isSupabaseNotFound(storageErr)) {
+    return { ...base, treatAsMissing: true };
+  }
+
+  const response = storageErr.originalError;
+  if (!(response instanceof Response)) {
+    return base;
+  }
+
+  base.httpStatus = response.status;
+  let bodySnippet = '';
+  let apiStatusCode: string | undefined;
+
+  try {
+    const text = await response.clone().text();
+    bodySnippet = text.slice(0, 200);
+    const parsed = JSON.parse(text) as {
+      statusCode?: string | number;
+      error?: string;
+      message?: string;
+    };
+    apiStatusCode = parsed.statusCode != null ? String(parsed.statusCode) : undefined;
+    const combined = `${parsed.error ?? ''} ${parsed.message ?? ''}`.toLowerCase();
+    const treatAsMissing =
+      response.status === 404 ||
+      apiStatusCode === '404' ||
+      combined.includes('not found') ||
+      combined.includes('resource was not found');
+    return {
+      treatAsMissing,
+      httpStatus: response.status,
+      bodySnippet,
+      apiStatusCode,
+    };
+  } catch {
+    return {
+      ...base,
+      httpStatus: response.status,
+      bodySnippet,
+      treatAsMissing: response.status === 404,
+    };
+  }
 }
 
 function guessContentType(key: string): string {
@@ -231,15 +347,89 @@ function isMissingS3Object(err: unknown): boolean {
   const error = err as {
     name?: string;
     Code?: string;
+    code?: string;
     $metadata?: { httpStatusCode?: number };
   };
-  const code = error.name || error.Code;
-  if (code === 'NoSuchKey' || code === 'NotFound') return true;
+  const code = error.name || error.Code || error.code;
+  if (code === 'NoSuchKey' || code === 'NotFound' || code === 'NoSuchObject') {
+    return true;
+  }
   return error.$metadata?.httpStatusCode === 404;
 }
 
-function isSupabaseNotFound(err: { message?: string; statusCode?: string }): boolean {
+function isSupabaseNotFound(err: {
+  message?: string;
+  statusCode?: string | number;
+  error?: string;
+}): boolean {
   const msg = (err.message ?? '').toLowerCase();
-  if (msg.includes('not found') || msg.includes('object not found')) return true;
-  return err.statusCode === '404';
+  const code = (err.error ?? '').toLowerCase();
+  if (
+    msg.includes('not found') ||
+    msg.includes('object not found') ||
+    msg.includes('resource was not found') ||
+    code === 'not_found'
+  ) {
+    return true;
+  }
+  return String(err.statusCode ?? '') === '404';
+}
+
+function summarizeStorageError(
+  err: unknown,
+  supabaseDiag?: SupabaseDownloadDiag,
+): {
+  status?: string | number;
+  code?: string;
+  message: string;
+} {
+  if (err == null) return { message: 'unknown error' };
+  if (typeof err === 'string') return { message: redactStorageDetail(err) };
+  if (typeof err !== 'object') {
+    return { message: redactStorageDetail(String(err)) };
+  }
+
+  const error = err as {
+    message?: unknown;
+    name?: string;
+    Code?: string;
+    code?: string;
+    error?: string;
+    statusCode?: string | number;
+    status?: string | number;
+    $metadata?: { httpStatusCode?: number };
+  };
+  const message =
+    typeof error.message === 'string'
+      ? error.message
+      : err instanceof Error
+        ? err.message
+        : 'unknown error';
+  const code = error.Code || error.code || error.error || error.name;
+  const status =
+    supabaseDiag?.httpStatus ??
+    error.$metadata?.httpStatusCode ??
+    error.statusCode ??
+    error.status;
+
+  const detailMessage =
+    (message === '{}' || message === 'unknown error') && supabaseDiag?.bodySnippet
+      ? supabaseDiag.bodySnippet
+      : message;
+
+  return {
+    status,
+    code,
+    message: redactStorageDetail(
+      typeof detailMessage === 'string' ? detailMessage : String(detailMessage),
+    ),
+  };
+}
+
+function redactStorageDetail(value: string, max = 300): string {
+  const cleaned = value.replace(
+    /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+    '[redacted]',
+  );
+  return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
 }

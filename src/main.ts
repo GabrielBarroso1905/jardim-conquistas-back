@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { applyStorageEnvOverlay } from './config/storage-env-overlay';
+applyStorageEnvOverlay();
 import { webcrypto } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -24,7 +26,7 @@ async function bootstrap() {
   app.enableCors({
     origin: resolveCorsOrigin(process.env.CORS_ALLOWED_ORIGINS),
     credentials: false,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Timezone', 'Timezone'],
   });
 
   app.useGlobalPipes(

@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   Controller,
   Get,
   NotFoundException,
@@ -30,6 +31,7 @@ export class StorageController {
   })
   @ApiResponse({ status: 200, description: 'Arquivo retornado.' })
   @ApiResponse({ status: 404, description: 'Objeto não encontrado.' })
+  @ApiResponse({ status: 502, description: 'Falha ao ler o storage.' })
   async getAsset(
     @Param('path') path: string | string[],
     @Req() req: Request,
@@ -41,7 +43,12 @@ export class StorageController {
       throw new NotFoundException('invalid asset key');
     }
 
-    const object = await this.storageService.getObject(key);
+    let object: Awaited<ReturnType<StorageService['getObject']>>;
+    try {
+      object = await this.storageService.getObject(key);
+    } catch {
+      throw new BadGatewayException('Failed to fetch asset from storage');
+    }
     if (!object.body) {
       throw new NotFoundException('asset not found');
     }

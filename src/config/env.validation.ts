@@ -43,6 +43,8 @@ export const envValidationSchema = Joi.object({
 
   // URLs públicas
   PUBLIC_BASE_URL: Joi.string().uri().optional(),
+  ASSETS_PUBLIC_BASE_URL: Joi.string().uri().optional(),
+  STORAGE_ENV_OVERLAY: Joi.string().optional(),
 
   // CORS — vírgula-separado; omitir, vazio ou * = qualquer origem; senão lista de URLs
   CORS_ALLOWED_ORIGINS: Joi.string().optional(),

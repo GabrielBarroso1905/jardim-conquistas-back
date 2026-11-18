@@ -81,7 +81,7 @@ npm run build
 
 Após release com migrations novas: `npx prisma migrate deploy` (one-off ou step de release).
 
-Confirme no painel: `DATABASE_URL`, `JWT_SECRET` (≥ 16), `OPENAI_API_KEY` e `CORS_ALLOWED_ORIGINS` com a URL do frontend.
+Confirme no painel: `DATABASE_URL`, `JWT_SECRET` (≥ 16), `OPENAI_API_KEY` e `CORS_ALLOWED_ORIGINS` com a URL do frontend (e `http://localhost:8080` / `:5173` se o front local chama essa API). O front deve usar `fetch` com `credentials: "omit"` — ver [docs/CORS_FRONTEND.md](docs/CORS_FRONTEND.md). Se o health retorna 503, ver [docs/PRODUCTION_TROUBLESHOOTING.md](docs/PRODUCTION_TROUBLESHOOTING.md).
 
 Health check: `GET /health` → `{ "status": "ok", ... }`.
 
@@ -92,6 +92,13 @@ npm run test
 npm run test:cov
 npm run typecheck
 ```
+
+## Documentação
+
+- **Cadastro, login e vínculo Telegram/WhatsApp:** [docs/USER_ONBOARDING_AND_LINKING.md](docs/USER_ONBOARDING_AND_LINKING.md)
+- **CORS e `auth.ts` no front:** [docs/CORS_FRONTEND.md](docs/CORS_FRONTEND.md)
+- **Production 503 / health:** [docs/PRODUCTION_TROUBLESHOOTING.md](docs/PRODUCTION_TROUBLESHOOTING.md)
+- **Paridade de canais após vínculo:** [docs/CHANNEL_PARITY.md](docs/CHANNEL_PARITY.md)
 
 ## HTTP (resumo)
 
@@ -177,7 +184,8 @@ Com `STORAGE_PROVIDER=supabase` (default quando `SUPABASE_URL` + `SUPABASE_SERVI
 | `STORAGE_PROVIDER` | `supabase` ou `s3` (fallback Garage) |
 | `SUPABASE_STORAGE_BUCKET` | Nome do bucket (ex. `jardim-das-conquistas`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Obrigatório no servidor** para bucket privado |
-| `S3_ASSET_PROXY` + `PUBLIC_BASE_URL` | Recomendado no front (Pixi same-origin) |
+| `S3_ASSET_PROXY` + `PUBLIC_BASE_URL` ou `ASSETS_PUBLIC_BASE_URL` | Recomendado no front (Pixi same-origin) |
+| `STORAGE_ENV_OVERLAY` | Arquivo extra (ex. `.env_main`) que sobrescreve só vars de Supabase/storage; útil com DB production e bucket main |
 
 ## Migrar storage (Garage/S3 → Supabase Storage)
 
@@ -201,6 +209,20 @@ npm run storage:transfer -- --skip-existing    # retoma sem reenviar
 ### 2. Cutover no Coolify
 
 Defina `STORAGE_PROVIDER=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` e mantenha `S3_ASSET_PROXY=true`. As variáveis `S3_*` podem ficar só para o script `storage:transfer` (origem Garage).
+
+### Sincronizar main → production (local)
+
+Com [`.env_main`](.env_main) (origem) e [`.env`](.env) (destino production):
+
+```bash
+npm run storage:transfer:supabase:dry-run -- --prefix assets/
+npm run storage:transfer:supabase -- --prefix assets/
+
+# Banco (requer pg_dump/psql no PATH):
+npm run sync:main-to-prod -- --db-only --yes
+# Ou tudo de uma vez:
+npm run sync:main-to-prod -- --yes
+```
 
 ### 3. Banco de dados (já alinhado se você rodou as migrations de keys)
 
