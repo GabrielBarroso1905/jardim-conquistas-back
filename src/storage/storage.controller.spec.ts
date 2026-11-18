@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadGatewayException, NotFoundException } from '@nestjs/common';
 import { StorageController } from './storage.controller';
 import { StorageService } from './storage.service';
 import { Readable } from 'stream';
@@ -49,5 +49,27 @@ describe('StorageController', () => {
         { setHeader: jest.fn() } as any,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('devolve 404 quando o objeto não existe', async () => {
+    mockGetObject.mockResolvedValue({ body: null });
+    await expect(
+      controller.getAsset(
+        'assets/words/lago/Lago.svg',
+        { headers: {} } as any,
+        { setHeader: jest.fn() } as any,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('devolve 502 quando o storage falha', async () => {
+    mockGetObject.mockRejectedValue(new Error('boom'));
+    await expect(
+      controller.getAsset(
+        'assets/words/lago/Lago.svg',
+        { headers: {} } as any,
+        { setHeader: jest.fn() } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadGatewayException);
   });
 });

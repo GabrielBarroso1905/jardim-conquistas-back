@@ -81,7 +81,7 @@ npm run build
 
 Após release com migrations novas: `npx prisma migrate deploy` (one-off ou step de release).
 
-Confirme no painel: `DATABASE_URL`, `JWT_SECRET` (≥ 16), `OPENAI_API_KEY` e `CORS_ALLOWED_ORIGINS` com a URL do frontend.
+Confirme no painel: `DATABASE_URL`, `JWT_SECRET` (≥ 16), `OPENAI_API_KEY` e `CORS_ALLOWED_ORIGINS` com a URL do frontend (e `http://localhost:8080` / `:5173` se o front local chama essa API). O front deve usar `fetch` com `credentials: "omit"` — ver [docs/CORS_FRONTEND.md](docs/CORS_FRONTEND.md). Se o health retorna 503, ver [docs/PRODUCTION_TROUBLESHOOTING.md](docs/PRODUCTION_TROUBLESHOOTING.md).
 
 Health check: `GET /health` → `{ "status": "ok", ... }`.
 
@@ -92,6 +92,13 @@ npm run test
 npm run test:cov
 npm run typecheck
 ```
+
+## Documentação
+
+- **Cadastro, login e vínculo Telegram/WhatsApp:** [docs/USER_ONBOARDING_AND_LINKING.md](docs/USER_ONBOARDING_AND_LINKING.md)
+- **CORS e `auth.ts` no front:** [docs/CORS_FRONTEND.md](docs/CORS_FRONTEND.md)
+- **Production 503 / health:** [docs/PRODUCTION_TROUBLESHOOTING.md](docs/PRODUCTION_TROUBLESHOOTING.md)
+- **Paridade de canais após vínculo:** [docs/CHANNEL_PARITY.md](docs/CHANNEL_PARITY.md)
 
 ## HTTP (resumo)
 
