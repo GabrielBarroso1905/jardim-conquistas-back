@@ -48,7 +48,11 @@ export class StorageService {
     this.useAssetProxy =
       process.env.S3_ASSET_PROXY === 'true' ||
       process.env.S3_ASSET_PROXY === '1';
-    this.publicBaseUrl = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    this.publicBaseUrl = (
+      process.env.ASSETS_PUBLIC_BASE_URL ||
+      process.env.PUBLIC_BASE_URL ||
+      ''
+    ).replace(/\/$/, '');
 
     if (this.provider === 'supabase') {
       this.supabase = createSupabaseAdminClient();
@@ -75,7 +79,7 @@ export class StorageService {
   buildProxyUrl(key: string): string {
     if (!this.publicBaseUrl) {
       throw new Error(
-        'PUBLIC_BASE_URL is required when S3_ASSET_PROXY is enabled',
+        'ASSETS_PUBLIC_BASE_URL or PUBLIC_BASE_URL is required when S3_ASSET_PROXY is enabled',
       );
     }
     const encoded = key
@@ -120,8 +124,17 @@ export class StorageService {
         .download(key);
 
       if (error) {
-        if (isSupabaseNotFound(error)) return { body: null };
-        throw this.failGetObject(key, error);
+        const missingDiag = await diagnoseSupabaseDownloadError(error);
+
+        if (isSupabaseNotFound(error) || missingDiag.treatAsMissing) {
+          if (missingDiag.treatAsMissing && !isSupabaseNotFound(error)) {
+            this.logger.warn(
+              `Storage list/download mismatch for ${key}: HTTP ${missingDiag.httpStatus} ${missingDiag.bodySnippet ?? ''}`.trim(),
+            );
+          }
+          return { body: null };
+        }
+        throw this.failGetObject(key, error, missingDiag);
       }
       if (!data) return { body: null };
 
@@ -234,8 +247,12 @@ export class StorageService {
     };
   }
 
-  private failGetObject(key: string, err: unknown): StorageUpstreamError {
-    const summary = summarizeStorageError(err);
+  private failGetObject(
+    key: string,
+    err: unknown,
+    supabaseDiag?: SupabaseDownloadDiag,
+  ): StorageUpstreamError {
+    const summary = summarizeStorageError(err, supabaseDiag);
     this.logger.error(
       `Failed to fetch asset ${JSON.stringify({
         key,
@@ -244,9 +261,76 @@ export class StorageService {
         status: summary.status,
         code: summary.code,
         message: summary.message,
+        httpStatus: supabaseDiag?.httpStatus,
+        bodySnippet: supabaseDiag?.bodySnippet,
       })}`,
     );
     return new StorageUpstreamError(key, summary.message);
+  }
+}
+
+type SupabaseDownloadDiag = {
+  treatAsMissing: boolean;
+  httpStatus?: number;
+  bodySnippet?: string;
+  apiStatusCode?: string;
+};
+
+async function diagnoseSupabaseDownloadError(
+  err: unknown,
+): Promise<SupabaseDownloadDiag> {
+  const base: SupabaseDownloadDiag = { treatAsMissing: false };
+  if (!err || typeof err !== 'object') return base;
+
+  const storageErr = err as {
+    name?: string;
+    originalError?: Response;
+    statusCode?: string | number;
+    error?: string;
+    message?: string;
+  };
+
+  if (isSupabaseNotFound(storageErr)) {
+    return { ...base, treatAsMissing: true };
+  }
+
+  const response = storageErr.originalError;
+  if (!(response instanceof Response)) {
+    return base;
+  }
+
+  base.httpStatus = response.status;
+  let bodySnippet = '';
+  let apiStatusCode: string | undefined;
+
+  try {
+    const text = await response.clone().text();
+    bodySnippet = text.slice(0, 200);
+    const parsed = JSON.parse(text) as {
+      statusCode?: string | number;
+      error?: string;
+      message?: string;
+    };
+    apiStatusCode = parsed.statusCode != null ? String(parsed.statusCode) : undefined;
+    const combined = `${parsed.error ?? ''} ${parsed.message ?? ''}`.toLowerCase();
+    const treatAsMissing =
+      response.status === 404 ||
+      apiStatusCode === '404' ||
+      combined.includes('not found') ||
+      combined.includes('resource was not found');
+    return {
+      treatAsMissing,
+      httpStatus: response.status,
+      bodySnippet,
+      apiStatusCode,
+    };
+  } catch {
+    return {
+      ...base,
+      httpStatus: response.status,
+      bodySnippet,
+      treatAsMissing: response.status === 404,
+    };
   }
 }
 
@@ -291,7 +375,10 @@ function isSupabaseNotFound(err: {
   return String(err.statusCode ?? '') === '404';
 }
 
-function summarizeStorageError(err: unknown): {
+function summarizeStorageError(
+  err: unknown,
+  supabaseDiag?: SupabaseDownloadDiag,
+): {
   status?: string | number;
   code?: string;
   message: string;
@@ -320,12 +407,22 @@ function summarizeStorageError(err: unknown): {
         : 'unknown error';
   const code = error.Code || error.code || error.error || error.name;
   const status =
-    error.$metadata?.httpStatusCode ?? error.statusCode ?? error.status;
+    supabaseDiag?.httpStatus ??
+    error.$metadata?.httpStatusCode ??
+    error.statusCode ??
+    error.status;
+
+  const detailMessage =
+    (message === '{}' || message === 'unknown error') && supabaseDiag?.bodySnippet
+      ? supabaseDiag.bodySnippet
+      : message;
 
   return {
     status,
     code,
-    message: redactStorageDetail(message),
+    message: redactStorageDetail(
+      typeof detailMessage === 'string' ? detailMessage : String(detailMessage),
+    ),
   };
 }
 

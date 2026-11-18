@@ -6,10 +6,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DRY_RUN=false
+FORCE_DEST=false
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
+    --yes) FORCE_DEST=true ;;
     -h | --help)
       echo "Uso: $0 [--dry-run]"
       exit 0
@@ -140,11 +142,15 @@ dest_has_user_data() {
 
   if [[ "$total" -gt 0 ]]; then
     echo "WARN: destino já tem $total linhas (exc. _prisma_migrations)." >&2
+    if $FORCE_DEST; then
+      echo "Continuando (--yes)." >&2
+      return
+    fi
     if [[ -t 0 ]]; then
       read -r -p "Continuar mesmo assim? [y/N] " ans
       [[ "${ans,,}" == "y" ]] || exit 1
     else
-      echo "ERROR: destino não está vazio. Esvazie o banco ou use ambiente interativo." >&2
+      echo "ERROR: destino não está vazio. Passe --yes para forçar ou esvazie o banco." >&2
       exit 1
     fi
   fi

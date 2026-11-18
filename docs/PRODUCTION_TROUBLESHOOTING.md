@@ -36,7 +36,20 @@ CORS_ALLOWED_ORIGINS=https://jardim.sowtech.io,http://localhost:8080
 
 Redeploy não é obrigatório só para CORS — basta reiniciar o processo se a env for lida no boot.
 
-### 4. Diferença main vs production
+### 4. Dev local: DB production, storage main (overlay)
+
+Se `supabase.production` lista arquivos mas o download retorna 404 (blob ausente), você pode manter `DATABASE_URL` do `.env` e apontar **só o storage** para o main:
+
+```env
+STORAGE_ENV_OVERLAY=.env_main
+PUBLIC_BASE_URL=http://localhost:3000
+```
+
+O overlay aplica `SUPABASE_*` de `.env_main` e define `ASSETS_PUBLIC_BASE_URL` a partir do `PUBLIC_BASE_URL` do arquivo main (`https://api.sowtech.io`). Webhooks locais continuam com `PUBLIC_BASE_URL` do `.env`.
+
+Reinicie o Nest após alterar. Valide: `GET http://localhost:3000/api/assets/assets/words/lago/Lago.svg` → 200.
+
+### 5. Diferença main vs production
 
 - **api.sowtech.io** e **api.production.sowtech.io** são instâncias separadas (banco, storage, env).
 - Um JWT emitido em um ambiente **não** valida no outro se `JWT_SECRET` for diferente.

@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { applyStorageEnvOverlay } from './config/storage-env-overlay';
+applyStorageEnvOverlay();
 import { webcrypto } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';

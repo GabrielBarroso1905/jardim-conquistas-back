@@ -27,7 +27,11 @@
     "db:transfer": "bash scripts/transfer-database.sh",
     "db:transfer:dry-run": "bash scripts/transfer-database.sh --dry-run",
     "storage:transfer": "ts-node -r tsconfig-paths/register scripts/transfer-storage.ts",
-    "storage:transfer:dry-run": "ts-node -r tsconfig-paths/register scripts/transfer-storage.ts --dry-run"
+    "storage:transfer:dry-run": "ts-node -r tsconfig-paths/register scripts/transfer-storage.ts --dry-run",
+    "storage:transfer:supabase": "ts-node -r tsconfig-paths/register scripts/transfer-storage-supabase.ts",
+    "storage:transfer:supabase:dry-run": "ts-node -r tsconfig-paths/register scripts/transfer-storage-supabase.ts --dry-run",
+    "sync:main-to-prod": "bash scripts/transfer-main-to-production.sh",
+    "sync:main-to-prod:dry-run": "bash scripts/transfer-main-to-production.sh --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1109.0",

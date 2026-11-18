@@ -184,7 +184,8 @@ Com `STORAGE_PROVIDER=supabase` (default quando `SUPABASE_URL` + `SUPABASE_SERVI
 | `STORAGE_PROVIDER` | `supabase` ou `s3` (fallback Garage) |
 | `SUPABASE_STORAGE_BUCKET` | Nome do bucket (ex. `jardim-das-conquistas`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Obrigatório no servidor** para bucket privado |
-| `S3_ASSET_PROXY` + `PUBLIC_BASE_URL` | Recomendado no front (Pixi same-origin) |
+| `S3_ASSET_PROXY` + `PUBLIC_BASE_URL` ou `ASSETS_PUBLIC_BASE_URL` | Recomendado no front (Pixi same-origin) |
+| `STORAGE_ENV_OVERLAY` | Arquivo extra (ex. `.env_main`) que sobrescreve só vars de Supabase/storage; útil com DB production e bucket main |
 
 ## Migrar storage (Garage/S3 → Supabase Storage)
 
@@ -208,6 +209,20 @@ npm run storage:transfer -- --skip-existing    # retoma sem reenviar
 ### 2. Cutover no Coolify
 
 Defina `STORAGE_PROVIDER=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` e mantenha `S3_ASSET_PROXY=true`. As variáveis `S3_*` podem ficar só para o script `storage:transfer` (origem Garage).
+
+### Sincronizar main → production (local)
+
+Com [`.env_main`](.env_main) (origem) e [`.env`](.env) (destino production):
+
+```bash
+npm run storage:transfer:supabase:dry-run -- --prefix assets/
+npm run storage:transfer:supabase -- --prefix assets/
+
+# Banco (requer pg_dump/psql no PATH):
+npm run sync:main-to-prod -- --db-only --yes
+# Ou tudo de uma vez:
+npm run sync:main-to-prod -- --yes
+```
 
 ### 3. Banco de dados (já alinhado se você rodou as migrations de keys)
 
